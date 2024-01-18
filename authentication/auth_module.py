@@ -113,7 +113,6 @@ def get_products():
 @jwt_required()
 def create_basket():
     try:
-        import pdb; pdb.set_trace()
         current_user = get_jwt_identity()
         user = Customers.query.filter_by(customer_id=current_user).first()
 
@@ -275,8 +274,6 @@ def remove_from_basket():
 # User signup
 @app.route('/signup', methods=['POST'])
 def signup():
-    import pdb;
-    pdb.set_trace()
     data = request.json
     first_name = data['first_name']
     last_name = data['last_name']
@@ -297,8 +294,6 @@ def signup():
 
 @app.route('/signin', methods=['POST'])
 def signin():
-    import pdb;
-    pdb.set_trace()
     data = request.json
     email = data.get('email')
     password = data.get('password')
