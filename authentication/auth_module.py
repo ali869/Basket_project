@@ -3,11 +3,13 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
 import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
-from sqlalchemy.sql import func
 import datetime
+import stripe
+
+stripe.api_key = "sk_test_4eC39HqLyjWDarjtT1zdp7dc"
 
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:postgres@localhost/local_basket'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:postgres@localhost/local_basket1'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = 'your-secret-key'  # Replace with a secret key for JWT encoding
 
@@ -48,25 +50,25 @@ class Basket(db.Model):
 
 class StripePayments(db.Model):
     payment_id = db.Column(db.String(255), primary_key=True)
-    basket_id = db.Column(db.String(255), db.ForeignKey('basket.basket_id'),
-                          nullable=False)  # Update foreign key reference
     customer_id = db.Column(db.String(255), db.ForeignKey('customers.customer_id'), nullable=False)
     stripe_payment_intent_id = db.Column(db.String(255))
     amount = db.Column(db.DECIMAL(10, 2), nullable=True)
     currency = db.Column(db.String(10), nullable=True)
     payment_status = db.Column(db.String(50), nullable=True)
+    stripe_customer_id = db.Column(db.String(50), nullable=True)
     shipping_address_line1 = db.Column(db.String(100), nullable=False)
     shipping_address_line2 = db.Column(db.String(100), nullable=True)
     shipping_address_line3 = db.Column(db.String(100), nullable=True)
     shipping_address_ine4 = db.Column(db.String(100), nullable=True)
     shipping_postcode = db.Column(db.String(10), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False)
-    basket = db.relationship('Basket', backref='payment')
 
 
 class Orders(db.Model):
     order_id = db.Column(db.String(255), primary_key=True)
     order_status = db.Column(db.String(50), nullable=True)
+    customer_id = db.Column(db.String(255), db.ForeignKey('customers.customer_id'), nullable=False)
+    payment_method_id = db.Column(db.String(255), db.ForeignKey('stripe_payments.payment_id'), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False)
 
 
@@ -310,7 +312,210 @@ def signin():
     return jsonify({'message': 'Invalid credentials'}), 401
 
 
-# Create product with JWT authorization
+def create_stripe_user(p_method, email):
+    """
+    Creates a new Stripe user with the given payment method and email.
+
+    Parameters:
+        p_method (str): The payment method to associate with the new user.
+        email (str): The email address of the new user.
+
+    Returns:
+        tuple: A tuple containing a string indicating the success status ('success' if successful, None otherwise) and the created customer object if successful, or a tuple containing None and the error message if unsuccessful.
+    """
+    try:
+        customer = stripe.Customer.create(
+            payment_method=p_method,
+            email=email
+        )
+
+        return 'success', customer
+
+    except Exception as e:
+        return None, str(e)
+
+
+def user_payment_method(stripe_user, card=None):
+    """
+    Given a Stripe user and an optional card, this function retrieves the payment methods associated with the user. If payment methods exist, the function returns the first payment method ID if no card is specified. If a card is specified, the function returns a dictionary containing the last 4 digits of the card, the expiration month and year, and the brand of the card.
+
+    Parameters:
+    - stripe_user: The Stripe user for whom to retrieve the payment methods.
+    - card (optional): The card to retrieve information for.
+
+    Returns:
+    - If no card is specified, the function returns the ID of the first payment method.
+    - If a card is specified, the function returns a dictionary with the following keys:
+      - 'last4': The last 4 digits of the card.
+      - 'exp_month': The expiration month of the card.
+      - 'exp_year': The expiration year of the card.
+      - 'brand': The brand of the card.
+    """
+    payment_methods = stripe.PaymentMethod.list(
+        customer=stripe_user,
+        type='card'
+    )
+    if payment_methods:
+        if card:
+            result = dict()
+            result['last4'] = payment_methods.data[0]['card']['last4']
+            result['exp_month'] = payment_methods.data[0]['card']['exp_month']
+            result['exp_year'] = payment_methods.data[0]['card']['exp_year']
+            result['brand'] = payment_methods.data[0]['card']['brand']
+            return result
+        return payment_methods.data[0].id
+
+
+def create_stripe_intent(customer, payment_method, amount):
+    """
+    Create a Stripe payment intent.
+
+    Args:
+        customer (str): The ID of the customer to associate the payment with.
+        payment_method (str): The ID of the payment method to use.
+        amount (float): The amount to charge, in gbp.
+
+    Returns:
+        tuple: A tuple containing a string representing the status of the payment ('success' or None) and a PaymentIntent object.
+
+    Raises:
+        Exception: If there is an error creating the payment intent.
+
+    Example:
+        create_stripe_intent('customer_id', 'payment_method_id', 10.0)
+    """
+    try:
+        intent = stripe.PaymentIntent.create(
+            customer=customer,
+            payment_method=payment_method,
+            currency='gbp',
+            amount=int(float(amount) * 100),
+            off_session=True,
+            confirm=True
+        )
+
+        return 'success', intent
+    except Exception as e:
+        return None, str(e)
+
+
+def make_transaction(tenant_obj):
+    """
+    Make a transaction for a given tenant.
+
+    Parameters:
+        tenant_obj (Tenant): The tenant object.
+
+    Returns:
+        Tuple[bool, Any]: A tuple containing a boolean indicating the success of the transaction and the response object.
+    """
+    pm_id = user_payment_method(tenant_obj)
+    success, response = create_stripe_intent(tenant_obj, pm_id, 500)
+    return success, response
+
+
+@app.route('/add-payment-method', methods=['POST'])
+@jwt_required()
+def add_payment_method():
+    """
+    Add a payment method for the user.
+
+    Parameters:
+    - request: The request object containing the user's information.
+
+    Returns:
+    - Response: A response object containing the success status and a message.
+    """
+    data = request.json
+    p_method = data.get('payment_method_id', None)
+    if not p_method:
+        return jsonify({'message': 'Payment method id is required.'}), 400
+    current_user = get_jwt_identity()
+    user = Customers.query.filter_by(customer_id=current_user).first()
+    success, customer = create_stripe_user(p_method, user.email)
+    if not success:
+        return jsonify({'success': False, 'message': f'{customer.split(": ")[-1]}'}, 400)
+    success, stripe_response = make_transaction(customer.id)
+    if success:
+        basket_items = Basket.query.filter_by(customer_id=current_user).all()
+        total_price = 0.0
+
+        for basket_item in basket_items:
+            product = Products.query.get(basket_item.item_id)
+            if product:
+                total_price += float(product.price) * basket_item.quantity
+        payment_intent = stripe.PaymentIntent.create(
+            amount=int(total_price),
+            currency='gbp',
+            payment_method_types=['card'],
+            receipt_email=user.email
+        )
+        new_payment = StripePayments(
+            payment_id=uuid.uuid4(),
+            customer_id=user.customer_id,
+            stripe_payment_intent_id=payment_intent['id'],
+            amount=total_price,
+            stripe_customer_id=customer.id,
+            currency='gbp',
+            payment_status='PENDING',
+            shipping_address_line1='Test address',
+            shipping_postcode='test_code',
+            created_at=datetime.datetime.now()
+        )
+        db.session.add(new_payment)
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
+                        'user_email': str(user.email), 'customer_id':customer.id}, 200)
+
+    return jsonify({'message': 'Failed to create Payment Method'}, 400)
+
+
+@app.route('/payment-status', methods=['GET'])
+@jwt_required()
+def payment_status():
+    current_user = get_jwt_identity()
+    user = Customers.query.filter_by(customer_id=current_user).first()
+    get_payment = StripePayments.query.filter_by(customer_id=current_user).first()
+    payment_intents = stripe.PaymentIntent.list(customer=get_payment.stripe_customer_id)
+    status_check = ''
+
+    # Check the payment status of the first PaymentIntent (you might want to handle multiple PaymentIntents differently)
+    if payment_intents.data:
+        payment_intent = payment_intents.data[0]
+        status_check = payment_intent.status
+
+    if status_check == 'succeeded':
+        get_payment.payment_status = 'APPROVED'
+        new_order = Orders(order_id=uuid.uuid4(), order_status='APPROVED', customer_id=user.customer_id,
+                           payment_method_id=get_payment.payment_id, created_at=datetime.datetime.now())
+        db.session.add(new_order)
+        db.session.commit()
+    return jsonify({'message': 'Record saved successfully.'}, 200)
+
+
+@app.route('/get-order-details', methods=['GET'])
+@jwt_required()
+def order_details():
+    try:
+        current_user = get_jwt_identity()
+        user = Customers.query.filter_by(customer_id=current_user).first()
+        response_dict = {}
+        get_payment = StripePayments.query.filter_by(customer_id=current_user).first()
+        if get_payment.payment_status == 'APPROVED':
+            get_order = Orders.query.filter_by(customer_id=current_user).first()
+            response_dict['order_id'] = get_order.order_id
+            response_dict['order_status'] = get_order.order_status
+            response_dict['order_created_at'] = get_order.created_at
+        response_dict['payment_id'] = get_payment.payment_id
+        response_dict['amount'] = int(get_payment.amount)
+        response_dict['payment_status'] = get_payment.payment_status
+        response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
+        response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
+        response_dict['shipping_address_line3'] = get_payment.shipping_address_line3
+        response_dict['shipping_postcode'] = get_payment.shipping_postcode
+        return jsonify({'Order details': response_dict}, 200)
+    except Exception as e:
+        return jsonify({'error': f'Failed to get order details because {str(e)}'}, 400)
 
 
 if __name__ == '__main__':
