@@ -1,17 +1,22 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, url_for
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
 import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
 import stripe
+from werkzeug.utils import secure_filename
+import os
 
 stripe.api_key = "sk_test_4eC39HqLyjWDarjtT1zdp7dc"
 
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:postgres@localhost/local_basket1'
+app = Flask(__name__, static_url_path='/static', static_folder='static')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:postgres@localhost/local_basket2'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_SECRET_KEY'] = 'your-secret-key'  # Replace with a secret key for JWT encoding
+app.config['JWT_SECRET_KEY'] = 'Secret_key_shh676767'  # Replace with a secret key for JWT encoding
+app.config['UPLOAD_FOLDER'] = 'static/uploads'  # Folder to store uploaded images
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
+app.config['BASE_URL'] = 'http://localhost:5000'  # Replace with your actual domain
 
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
@@ -36,8 +41,13 @@ class Products(db.Model):
     size = db.Column(db.String(100), nullable=False)
     price = db.Column(db.DECIMAL(10, 2), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False)
+    image_path = db.Column(db.String(255), nullable=True)  # New column for image path
     updated_at = db.Column(db.DateTime, nullable=False)
     basket_items = db.relationship('Basket', backref='product')  # Relationship to Basket
+
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 
 class Basket(db.Model):
@@ -74,12 +84,24 @@ class Orders(db.Model):
 
 @app.route('/products', methods=['POST'])
 def create_product():
-    data = request.json
+    data = request.form
     product_id = uuid.uuid4()
     new_product = Products(product_id=product_id, category=data['category'], colour='colour', size=data['size'],
                            price=data['price'], created_at=datetime.datetime.now(), updated_at=datetime.datetime.now())
     db.session.add(new_product)
     db.session.commit()
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify(message='No selected file'), 400
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        file.save(file_path)
+
+        # Update the image_path in the database
+        product = Products.query.filter_by(product_id=str(product_id)).first()  # Explicitly cast to string
+        product.image_path = file_path
+        db.session.commit()
     return jsonify({'message': 'Product created successfully'})
 
 
@@ -98,7 +120,9 @@ def get_products():
                 'size': product.size,
                 'price': float(product.price),  # Convert Decimal to float for JSON serialization
                 'created_at': product.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                'updated_at': product.updated_at.strftime('%Y-%m-%d %H:%M:%S')
+                'updated_at': product.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
+                'image_path': url_for('static', filename='uploads/' + os.path.basename(
+                    product.image_path)) if product.image_path else ''
             }
             for product in products
         ]
@@ -181,7 +205,9 @@ def get_basket():
                     'size': product.size,
                     'price': float(product.price),  # Convert Decimal to float for JSON serialization
                     'quantity': basket_item.quantity,
-                    'date_added': basket_item.date_created
+                    'date_added': basket_item.date_created,
+                    'image_path': url_for('static', filename='uploads/' + os.path.basename(
+                        product.image_path)) if product.image_path else ''
                 }
                 basket_details.append(product_details)
 
@@ -465,7 +491,7 @@ def add_payment_method():
         db.session.add(new_payment)
         db.session.commit()
         return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
-                        'user_email': str(user.email), 'customer_id':customer.id}, 200)
+                        'user_email': str(user.email), 'customer_id': customer.id}, 200)
 
     return jsonify({'message': 'Failed to create Payment Method'}, 400)
 
