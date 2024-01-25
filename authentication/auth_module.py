@@ -13,10 +13,10 @@ stripe.api_key = "sk_test_51LCj9uKZSvaz9gvrL2PW6BjZZzKxUHM0PHwvlZ8sQMkuA59snhCyg
 app = Flask(__name__, static_url_path='/static', static_folder='static')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:postgres@localhost/local_basket2'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_SECRET_KEY'] = 'Secret_key_shh676767'  # Replace with a secret key for JWT encoding
-app.config['UPLOAD_FOLDER'] = 'static/uploads'  # Folder to store uploaded images
+app.config['JWT_SECRET_KEY'] = 'Secret_key_shh676767'
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
-app.config['BASE_URL'] = 'http://localhost:5000'  # Replace with your actual domain
+app.config['BASE_URL'] = 'http://localhost:5000'
 
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
@@ -84,24 +84,24 @@ class Orders(db.Model):
 
 @app.route('/products', methods=['POST'])
 def create_product():
-    data = request.form
+    data = request.json
     product_id = uuid.uuid4()
     new_product = Products(product_id=product_id, category=data['category'], colour='colour', size=data['size'],
                            price=data['price'], created_at=datetime.datetime.now(), updated_at=datetime.datetime.now())
     db.session.add(new_product)
     db.session.commit()
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify(message='No selected file'), 400
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-
-        # Update the image_path in the database
-        product = Products.query.filter_by(product_id=str(product_id)).first()  # Explicitly cast to string
-        product.image_path = file_path
-        db.session.commit()
+    # file = request.files['file']
+    # if file.filename == '':
+    #     return jsonify(message='No selected file'), 400
+    # if file and allowed_file(file.filename):
+    #     filename = secure_filename(file.filename)
+    #     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    #     file.save(file_path)
+    #
+    #     # Update the image_path in the database
+    #     product = Products.query.filter_by(product_id=str(product_id)).first()  # Explicitly cast to string
+    #     product.image_path = file_path
+    #     db.session.commit()
     return jsonify({'message': 'Product created successfully'})
 
 
@@ -131,7 +131,6 @@ def get_products():
         return jsonify({'products': products_list})
 
     except Exception as e:
-        # Handle exceptions appropriately (e.g., log the error)
         return jsonify({'error': 'An error occurred while fetching products'}), 500
 
 
@@ -145,11 +144,10 @@ def create_basket():
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
-        data = request.json.get('products')  # Assuming the payload has a key 'products' containing a list of products
+        data = request.json.get('products')
         if not data or not isinstance(data, list):
             return jsonify({'error': 'Invalid payload'}), 400
 
-        # Iterate through the products in the payload and add them to the user's basket
         for product_info in data:
             product_id = product_info.get('product_id')
             quantity = product_info.get('quantity', 1)  # Default quantity is 1
@@ -158,7 +156,6 @@ def create_basket():
             if not product:
                 return jsonify({'error': f'Product with ID {product_id} not found'}), 404
 
-            # Create a new basket item for the user
             basket_item = Basket(
                 basket_id=str(uuid.uuid4()),
                 customer_id=current_user,
@@ -167,10 +164,8 @@ def create_basket():
                 date_created=datetime.datetime.now()
             )
 
-            # Add the basket item to the database
             db.session.add(basket_item)
 
-        # Commit the changes to the database
         db.session.commit()
 
         return jsonify({'message': 'Products added to the basket successfully'}), 200
@@ -190,10 +185,8 @@ def get_basket():
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
-        # Retrieve the basket items for the user
         basket_items = Basket.query.filter_by(customer_id=current_user).all()
 
-        # Construct a list of product details in the basket
         basket_details = []
         for basket_item in basket_items:
             product = Products.query.get(basket_item.item_id)
@@ -203,7 +196,7 @@ def get_basket():
                     'category': product.category,
                     'colour': product.colour,
                     'size': product.size,
-                    'price': float(product.price),  # Convert Decimal to float for JSON serialization
+                    'price': float(product.price),
                     'quantity': basket_item.quantity,
                     'date_added': basket_item.date_created,
                     'image_path': url_for('static', filename='uploads/' + os.path.basename(
@@ -218,7 +211,6 @@ def get_basket():
         return jsonify({'error': 'An error occurred while retrieving basket details'}), 500
 
 
-# Route to add a product to the user's basket (JWT required)
 @app.route('/add_to_basket', methods=['POST'])
 @jwt_required()
 def add_to_basket():
@@ -264,7 +256,6 @@ def add_to_basket():
         return jsonify({'error': 'An error occurred while adding product to basket'}), 500
 
 
-# Route to remove a product from the user's basket (JWT required)
 @app.route('/remove_from_basket', methods=['POST'])
 @jwt_required()
 def remove_from_basket():
@@ -326,7 +317,6 @@ def signin():
     email = data.get('email')
     password = data.get('password')
 
-    # Find the user by email
     user = Customers.query.filter_by(email=email).first()
 
     if user and check_password_hash(user.password_hash, password):
@@ -334,7 +324,6 @@ def signin():
         access_token = create_access_token(identity=user.customer_id)
         return jsonify(access_token=access_token)
 
-    # If the user or password is incorrect
     return jsonify({'message': 'Invalid credentials'}), 401
 
 
@@ -505,7 +494,6 @@ def payment_status():
     payment_intents = stripe.PaymentIntent.list(customer=get_payment.stripe_customer_id)
     status_check = ''
 
-    # Check the payment status of the first PaymentIntent (you might want to handle multiple PaymentIntents differently)
     if payment_intents.data:
         payment_intent = payment_intents.data[0]
         status_check = payment_intent.status
