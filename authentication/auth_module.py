@@ -8,7 +8,7 @@ import stripe
 from werkzeug.utils import secure_filename
 import os
 
-stripe.api_key = "sk_test_4eC39HqLyjWDarjtT1zdp7dc"
+stripe.api_key = "sk_test_51LCj9uKZSvaz9gvrL2PW6BjZZzKxUHM0PHwvlZ8sQMkuA59snhCyg1TUwkiN2Gn21S67MkXwxu9v6sOhdpJHWCy200JQlYOhYU"
 
 app = Flask(__name__, static_url_path='/static', static_folder='static')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:postgres@localhost/local_basket2'
