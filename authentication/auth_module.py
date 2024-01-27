@@ -5,7 +5,6 @@ import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
 import stripe
-from werkzeug.utils import secure_filename
 import os
 
 stripe.api_key = "sk_test_51LCj9uKZSvaz9gvrL2PW6BjZZzKxUHM0PHwvlZ8sQMkuA59snhCyg1TUwkiN2Gn21S67MkXwxu9v6sOhdpJHWCy200JQlYOhYU"
@@ -465,19 +464,24 @@ def add_payment_method():
             payment_method_types=['card'],
             receipt_email=user.email
         )
+        new_payment_id = uuid.uuid4()
         new_payment = StripePayments(
-            payment_id=uuid.uuid4(),
+            payment_id=new_payment_id,
             customer_id=user.customer_id,
             stripe_payment_intent_id=payment_intent['id'],
             amount=total_price,
             stripe_customer_id=customer.id,
             currency='gbp',
-            payment_status='PENDING',
+            payment_status='APPROVED',
             shipping_address_line1='Test address',
             shipping_postcode='test_code',
             created_at=datetime.datetime.now()
         )
         db.session.add(new_payment)
+        db.session.commit()
+        new_order = Orders(order_id=uuid.uuid4(), order_status='APPROVED', customer_id=user.customer_id,
+                           payment_method_id=new_payment_id, created_at=datetime.datetime.now())
+        db.session.add(new_order)
         db.session.commit()
         return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
                         'user_email': str(user.email), 'customer_id': customer.id}, 200)
@@ -485,26 +489,25 @@ def add_payment_method():
     return jsonify({'message': 'Failed to create Payment Method'}, 400)
 
 
-@app.route('/payment-status', methods=['GET'])
-@jwt_required()
-def payment_status():
-    current_user = get_jwt_identity()
-    user = Customers.query.filter_by(customer_id=current_user).first()
-    get_payment = StripePayments.query.filter_by(customer_id=current_user).first()
-    payment_intents = stripe.PaymentIntent.list(customer=get_payment.stripe_customer_id)
-    status_check = ''
-
-    if payment_intents.data:
-        payment_intent = payment_intents.data[0]
-        status_check = payment_intent.status
-
-    if status_check == 'succeeded':
-        get_payment.payment_status = 'APPROVED'
-        new_order = Orders(order_id=uuid.uuid4(), order_status='APPROVED', customer_id=user.customer_id,
-                           payment_method_id=get_payment.payment_id, created_at=datetime.datetime.now())
-        db.session.add(new_order)
-        db.session.commit()
-    return jsonify({'message': 'Record saved successfully.'}, 200)
+# @app.route('/payment-status', methods=['GET'])
+# @jwt_required()
+# def payment_status():
+#     current_user = get_jwt_identity()
+#     user = Customers.query.filter_by(customer_id=current_user).first()
+#     get_payment = StripePayments.query.filter_by(customer_id=current_user).first()
+#     payment_intents = stripe.PaymentIntent.list(customer=get_payment.stripe_customer_id)
+#     status_check = ''
+#
+#     if payment_intents.data:
+#         payment_intent = payment_intents.data[0]
+#         status_check = payment_intent.status
+#
+#     if status_check == 'succeeded':
+#         get_payment.payment_status = 'APPROVED'
+#
+#         db.session.add(new_order)
+#         db.session.commit()
+#     return jsonify({'message': 'Record saved successfully.'}, 200)
 
 
 @app.route('/get-order-details', methods=['GET'])
