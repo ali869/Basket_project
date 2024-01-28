@@ -185,7 +185,8 @@ def get_basket():
             product = Products.query.get(basket_item.item_id)
             if product:
                 product_details = {
-                    'product_id': basket_item.basket_id,
+                    'product_id': product.product_id,
+                    'id': basket_item.basket_id,
                     'category': product.category,
                     'colour': product.colour,
                     'size': basket_item.selected_size,
