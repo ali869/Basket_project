@@ -89,35 +89,21 @@ def create_product():
                            price=data['price'], created_at=datetime.datetime.now(), updated_at=datetime.datetime.now())
     db.session.add(new_product)
     db.session.commit()
-    # file = request.files['file']
-    # if file.filename == '':
-    #     return jsonify(message='No selected file'), 400
-    # if file and allowed_file(file.filename):
-    #     filename = secure_filename(file.filename)
-    #     file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-    #     file.save(file_path)
-    #
-    #     # Update the image_path in the database
-    #     product = Products.query.filter_by(product_id=str(product_id)).first()  # Explicitly cast to string
-    #     product.image_path = file_path
-    #     db.session.commit()
     return jsonify({'message': 'Product created successfully'})
 
 
 @app.route('/products', methods=['GET'])
 def get_products():
     try:
-        # Query all products from the database
         products = Products.query.all()
 
-        # Convert the product objects to a list of dictionaries
         products_list = [
             {
                 'product_id': product.product_id,
                 'category': product.category,
                 'colour': product.colour,
                 'size': product.size,
-                'price': float(product.price),  # Convert Decimal to float for JSON serialization
+                'price': float(product.price),
                 'created_at': product.created_at.strftime('%Y-%m-%d %H:%M:%S'),
                 'updated_at': product.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
                 'image_path': url_for('static', filename='uploads/' + os.path.basename(
@@ -126,7 +112,6 @@ def get_products():
             for product in products
         ]
 
-        # Return the products as JSON
         return jsonify({'products': products_list})
 
     except Exception as e:
@@ -170,7 +155,6 @@ def create_basket():
         return jsonify({'message': 'Products added to the basket successfully'}), 200
 
     except Exception as e:
-        # Handle exceptions appropriately (e.g., log the error)
         return jsonify({'error': 'An error occurred while adding products to the basket'}), 500
 
 
@@ -206,7 +190,6 @@ def get_basket():
         return jsonify({'basket_details': basket_details}), 200
 
     except Exception as e:
-        # Handle exceptions appropriately (e.g., log the error)
         return jsonify({'error': 'An error occurred while retrieving basket details'}), 500
 
 
@@ -224,19 +207,15 @@ def add_to_basket():
         product_id = data.get('product_id')
         quantity = data.get('quantity', 1)  # Default quantity is 1
 
-        # Check if the product exists
         product = Products.query.get(product_id)
         if not product:
             return jsonify({'error': 'Product not found'}), 404
 
-        # Check if the product is already in the user's basket
         existing_item = Basket.query.filter_by(customer_id=current_user, item_id=product_id).first()
 
         if existing_item:
-            # If the product is already in the basket, update the quantity
             existing_item.quantity += quantity
         else:
-            # If the product is not in the basket, add it
             new_basket_item = Basket(
                 basket_id=str(uuid.uuid4()),
                 customer_id=current_user,
@@ -251,7 +230,6 @@ def add_to_basket():
         return jsonify({'message': 'Product added to basket successfully'}), 200
 
     except Exception as e:
-        # Handle exceptions appropriately (e.g., log the error)
         return jsonify({'error': 'An error occurred while adding product to basket'}), 500
 
 
@@ -268,16 +246,13 @@ def remove_from_basket():
         data = request.json
         product_id = data.get('product_id')
 
-        # Check if the product exists
         product = Products.query.get(product_id)
         if not product:
             return jsonify({'error': 'Product not found'}), 404
 
-        # Check if the product is in the user's basket
         basket_item = Basket.query.filter_by(customer_id=current_user, item_id=product_id).first()
 
         if basket_item:
-            # If the product is in the basket, remove it
             db.session.delete(basket_item)
             db.session.commit()
             return jsonify({'message': 'Product removed from basket successfully'}), 200
@@ -285,11 +260,9 @@ def remove_from_basket():
             return jsonify({'error': 'Product not found in basket'}), 404
 
     except Exception as e:
-        # Handle exceptions appropriately (e.g., log the error)
         return jsonify({'error': 'An error occurred while removing product from basket'}), 500
 
 
-# User signup
 @app.route('/signup', methods=['POST'])
 def signup():
     data = request.json
@@ -319,7 +292,6 @@ def signin():
     user = Customers.query.filter_by(email=email).first()
 
     if user and check_password_hash(user.password_hash, password):
-        # If the user is found and the password is correct
         access_token = create_access_token(identity=user.customer_id)
         return jsonify(access_token=access_token)
 
@@ -327,16 +299,6 @@ def signin():
 
 
 def create_stripe_user(p_method, email):
-    """
-    Creates a new Stripe user with the given payment method and email.
-
-    Parameters:
-        p_method (str): The payment method to associate with the new user.
-        email (str): The email address of the new user.
-
-    Returns:
-        tuple: A tuple containing a string indicating the success status ('success' if successful, None otherwise) and the created customer object if successful, or a tuple containing None and the error message if unsuccessful.
-    """
     try:
         customer = stripe.Customer.create(
             payment_method=p_method,
@@ -350,21 +312,6 @@ def create_stripe_user(p_method, email):
 
 
 def user_payment_method(stripe_user, card=None):
-    """
-    Given a Stripe user and an optional card, this function retrieves the payment methods associated with the user. If payment methods exist, the function returns the first payment method ID if no card is specified. If a card is specified, the function returns a dictionary containing the last 4 digits of the card, the expiration month and year, and the brand of the card.
-
-    Parameters:
-    - stripe_user: The Stripe user for whom to retrieve the payment methods.
-    - card (optional): The card to retrieve information for.
-
-    Returns:
-    - If no card is specified, the function returns the ID of the first payment method.
-    - If a card is specified, the function returns a dictionary with the following keys:
-      - 'last4': The last 4 digits of the card.
-      - 'exp_month': The expiration month of the card.
-      - 'exp_year': The expiration year of the card.
-      - 'brand': The brand of the card.
-    """
     payment_methods = stripe.PaymentMethod.list(
         customer=stripe_user,
         type='card'
@@ -381,23 +328,6 @@ def user_payment_method(stripe_user, card=None):
 
 
 def create_stripe_intent(customer, payment_method, amount):
-    """
-    Create a Stripe payment intent.
-
-    Args:
-        customer (str): The ID of the customer to associate the payment with.
-        payment_method (str): The ID of the payment method to use.
-        amount (float): The amount to charge, in gbp.
-
-    Returns:
-        tuple: A tuple containing a string representing the status of the payment ('success' or None) and a PaymentIntent object.
-
-    Raises:
-        Exception: If there is an error creating the payment intent.
-
-    Example:
-        create_stripe_intent('customer_id', 'payment_method_id', 10.0)
-    """
     try:
         intent = stripe.PaymentIntent.create(
             customer=customer,
@@ -413,33 +343,15 @@ def create_stripe_intent(customer, payment_method, amount):
         return None, str(e)
 
 
-def make_transaction(tenant_obj):
-    """
-    Make a transaction for a given tenant.
-
-    Parameters:
-        tenant_obj (Tenant): The tenant object.
-
-    Returns:
-        Tuple[bool, Any]: A tuple containing a boolean indicating the success of the transaction and the response object.
-    """
-    pm_id = user_payment_method(tenant_obj)
-    success, response = create_stripe_intent(tenant_obj, pm_id, 500)
+def make_transaction(customer):
+    pm_id = user_payment_method(customer)
+    success, response = create_stripe_intent(customer, pm_id, 500)
     return success, response
 
 
 @app.route('/add-payment-method', methods=['POST'])
 @jwt_required()
 def add_payment_method():
-    """
-    Add a payment method for the user.
-
-    Parameters:
-    - request: The request object containing the user's information.
-
-    Returns:
-    - Response: A response object containing the success status and a message.
-    """
     data = request.json
     p_method = data.get('payment_method_id', None)
     if not p_method:
@@ -483,31 +395,15 @@ def add_payment_method():
                            payment_method_id=new_payment_id, created_at=datetime.datetime.now())
         db.session.add(new_order)
         db.session.commit()
+        basket_items = Basket.query.filter_by(customer_id=current_user).all()
+        for basket in basket_items:
+            db.session.delete(basket)
+            db.session.commit()
         return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
-                        'user_email': str(user.email), 'customer_id': customer.id}, 200)
+                        'user_email': str(user.email), 'customer_id': customer.id,
+                        'status_message': 'Payment Created successfully.'}, 200)
 
     return jsonify({'message': 'Failed to create Payment Method'}, 400)
-
-
-# @app.route('/payment-status', methods=['GET'])
-# @jwt_required()
-# def payment_status():
-#     current_user = get_jwt_identity()
-#     user = Customers.query.filter_by(customer_id=current_user).first()
-#     get_payment = StripePayments.query.filter_by(customer_id=current_user).first()
-#     payment_intents = stripe.PaymentIntent.list(customer=get_payment.stripe_customer_id)
-#     status_check = ''
-#
-#     if payment_intents.data:
-#         payment_intent = payment_intents.data[0]
-#         status_check = payment_intent.status
-#
-#     if status_check == 'succeeded':
-#         get_payment.payment_status = 'APPROVED'
-#
-#         db.session.add(new_order)
-#         db.session.commit()
-#     return jsonify({'message': 'Record saved successfully.'}, 200)
 
 
 @app.route('/get-order-details', methods=['GET'])
@@ -516,21 +412,24 @@ def order_details():
     try:
         current_user = get_jwt_identity()
         user = Customers.query.filter_by(customer_id=current_user).first()
-        response_dict = {}
-        get_payment = StripePayments.query.filter_by(customer_id=current_user).first()
-        if get_payment.payment_status == 'APPROVED':
-            get_order = Orders.query.filter_by(customer_id=current_user).first()
-            response_dict['order_id'] = get_order.order_id
-            response_dict['order_status'] = get_order.order_status
-            response_dict['order_created_at'] = get_order.created_at
-        response_dict['payment_id'] = get_payment.payment_id
-        response_dict['amount'] = int(get_payment.amount)
-        response_dict['payment_status'] = get_payment.payment_status
-        response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
-        response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
-        response_dict['shipping_address_line3'] = get_payment.shipping_address_line3
-        response_dict['shipping_postcode'] = get_payment.shipping_postcode
-        return jsonify({'Order details': response_dict}, 200)
+        all_orders = list()
+        get_payments = StripePayments.query.filter_by(customer_id=current_user)
+        for get_payment in get_payments:
+            response_dict = {}
+            if get_payment.payment_status == 'APPROVED':
+                get_order = Orders.query.filter_by(customer_id=current_user).first()
+                response_dict['order_id'] = get_order.order_id
+                response_dict['order_status'] = get_order.order_status
+                response_dict['order_created_at'] = get_order.created_at
+            response_dict['payment_id'] = get_payment.payment_id
+            response_dict['amount'] = int(get_payment.amount)
+            response_dict['payment_status'] = get_payment.payment_status
+            response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
+            response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
+            response_dict['shipping_address_line3'] = get_payment.shipping_address_line3
+            response_dict['shipping_postcode'] = get_payment.shipping_postcode
+            all_orders.append(response_dict)
+        return jsonify({'Order details': all_orders}, 200)
     except Exception as e:
         return jsonify({'error': f'Failed to get order details because {str(e)}'}, 400)
 
