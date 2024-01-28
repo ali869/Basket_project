@@ -54,6 +54,7 @@ class Basket(db.Model):
     customer_id = db.Column(db.String(255), db.ForeignKey('customers.customer_id'), nullable=False)
     item_id = db.Column(db.String(255), db.ForeignKey('products.product_id'), nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
+    selected_size = db.Column(db.String(255), nullable=True)
     date_created = db.Column(db.DateTime, nullable=False)
 
 
@@ -135,16 +136,23 @@ def create_basket():
         for product_info in data:
             product_id = product_info.get('product_id')
             quantity = product_info.get('quantity', 1)  # Default quantity is 1
+            get_size = product_info.get('size')  # Default quantity is 1
 
             product = Products.query.get(product_id)
             if not product:
                 return jsonify({'error': f'Product with ID {product_id} not found'}), 404
+            get_product_size = product.size
+            if not get_product_size:
+                return jsonify({'error': 'Product sizes not available'}, 400)
+            if get_size not in get_product_size.split(','):
+                return jsonify({'error': f'Product size not available, available sizes are {product.size}'}, 400)
 
             basket_item = Basket(
                 basket_id=str(uuid.uuid4()),
                 customer_id=current_user,
                 item_id=product_id,
                 quantity=quantity,
+                selected_size=get_size,
                 date_created=datetime.datetime.now()
             )
 
@@ -178,7 +186,7 @@ def get_basket():
                     'product_id': product.product_id,
                     'category': product.category,
                     'colour': product.colour,
-                    'size': product.size,
+                    'size': basket_item.selected_size,
                     'price': float(product.price),
                     'quantity': basket_item.quantity,
                     'date_added': basket_item.date_created,
@@ -206,10 +214,16 @@ def add_to_basket():
         data = request.json
         product_id = data.get('product_id')
         quantity = data.get('quantity', 1)  # Default quantity is 1
+        get_size = data.get('size', 1)  # Default quantity is 1
 
         product = Products.query.get(product_id)
         if not product:
             return jsonify({'error': 'Product not found'}), 404
+        get_product_size = product.size
+        if not get_product_size:
+            return jsonify({'error': 'Product sizes not available'}, 400)
+        if get_size not in get_product_size.split(','):
+            return jsonify({'error': f'Product size not available, available sizes are {product.size}'}, 400)
 
         existing_item = Basket.query.filter_by(customer_id=current_user, item_id=product_id).first()
 
@@ -221,6 +235,7 @@ def add_to_basket():
                 customer_id=current_user,
                 item_id=product_id,
                 quantity=quantity,
+                selected_size=get_size,
                 date_created=datetime.datetime.now()
             )
             db.session.add(new_basket_item)
@@ -353,7 +368,6 @@ def make_transaction(customer):
 @jwt_required()
 def add_payment_method():
     try:
-        import pdb; pdb.set_trace()
         data = request.json
         p_method = data.get('payment_method_id', None)
         get_address = data.get('address', '')
