@@ -352,59 +352,63 @@ def make_transaction(customer):
 @app.route('/add-payment-method', methods=['POST'])
 @jwt_required()
 def add_payment_method():
-    data = request.json
-    p_method = data.get('payment_method_id', None)
-    if not p_method:
-        return jsonify({'message': 'Payment method id is required.'}), 400
-    current_user = get_jwt_identity()
-    user = Customers.query.filter_by(customer_id=current_user).first()
-    success, customer = create_stripe_user(p_method, user.email)
-    if not success:
-        return jsonify({'success': False, 'message': f'{customer.split(": ")[-1]}'}, 400)
-    success, stripe_response = make_transaction(customer.id)
-    if success:
-        basket_items = Basket.query.filter_by(customer_id=current_user).all()
-        total_price = 0.0
+    try:
+        data = request.json
+        p_method = data.get('payment_method_id', None)
+        get_address = data.get('address', '')
+        get_postal_code = data.get('postal_code', '')
+        if not p_method:
+            return jsonify({'message': 'Payment method id is required.'}), 400
+        current_user = get_jwt_identity()
+        user = Customers.query.filter_by(customer_id=current_user).first()
+        success, customer = create_stripe_user(p_method, user.email)
+        if not success:
+            return jsonify({'success': False, 'message': f'{customer.split(": ")[-1]}'}, 400)
+        success, stripe_response = make_transaction(customer.id)
+        if success:
+            basket_items = Basket.query.filter_by(customer_id=current_user).all()
+            total_price = 0.0
 
-        for basket_item in basket_items:
-            product = Products.query.get(basket_item.item_id)
-            if product:
-                total_price += float(product.price) * basket_item.quantity
-        payment_intent = stripe.PaymentIntent.create(
-            amount=int(total_price),
-            currency='gbp',
-            payment_method_types=['card'],
-            receipt_email=user.email
-        )
-        new_payment_id = uuid.uuid4()
-        new_payment = StripePayments(
-            payment_id=new_payment_id,
-            customer_id=user.customer_id,
-            stripe_payment_intent_id=payment_intent['id'],
-            amount=total_price,
-            stripe_customer_id=customer.id,
-            currency='gbp',
-            payment_status='APPROVED',
-            shipping_address_line1='Test address',
-            shipping_postcode='test_code',
-            created_at=datetime.datetime.now()
-        )
-        db.session.add(new_payment)
-        db.session.commit()
-        new_order = Orders(order_id=uuid.uuid4(), order_status='APPROVED', customer_id=user.customer_id,
-                           payment_method_id=new_payment_id, created_at=datetime.datetime.now())
-        db.session.add(new_order)
-        db.session.commit()
-        basket_items = Basket.query.filter_by(customer_id=current_user).all()
-        for basket in basket_items:
-            db.session.delete(basket)
+            for basket_item in basket_items:
+                product = Products.query.get(basket_item.item_id)
+                if product:
+                    total_price += float(product.price) * basket_item.quantity
+            payment_intent = stripe.PaymentIntent.create(
+                amount=int(total_price),
+                currency='gbp',
+                payment_method_types=['card'],
+                receipt_email=user.email
+            )
+            new_payment_id = uuid.uuid4()
+            new_payment = StripePayments(
+                payment_id=new_payment_id,
+                customer_id=user.customer_id,
+                stripe_payment_intent_id=payment_intent['id'],
+                amount=total_price,
+                stripe_customer_id=customer.id,
+                currency='gbp',
+                payment_status='APPROVED',
+                shipping_address_line1=get_address,
+                shipping_postcode=get_postal_code,
+                created_at=datetime.datetime.now()
+            )
+            db.session.add(new_payment)
             db.session.commit()
-        return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
-                        'user_email': str(user.email), 'customer_id': customer.id,
-                        'status_message': 'Payment Created successfully.'}, 200)
+            new_order = Orders(order_id=uuid.uuid4(), order_status='APPROVED', customer_id=user.customer_id,
+                               payment_method_id=new_payment_id, created_at=datetime.datetime.now())
+            db.session.add(new_order)
+            db.session.commit()
+            basket_items = Basket.query.filter_by(customer_id=current_user).all()
+            for basket in basket_items:
+                db.session.delete(basket)
+                db.session.commit()
+            return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
+                            'user_email': str(user.email), 'customer_id': customer.id,
+                            'status_message': 'Payment Created successfully.'}, 200)
 
-    return jsonify({'message': 'Failed to create Payment Method'}, 400)
-
+        return jsonify({'message': 'Failed to create Payment Method'}, 400)
+    except Exception as e:
+        return jsonify({'message': f'Failed to create payment because of {str(e)}'}, 400)
 
 @app.route('/get-order-details', methods=['GET'])
 @jwt_required()
@@ -425,8 +429,6 @@ def order_details():
             response_dict['amount'] = int(get_payment.amount)
             response_dict['payment_status'] = get_payment.payment_status
             response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
-            response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
-            response_dict['shipping_address_line3'] = get_payment.shipping_address_line3
             response_dict['shipping_postcode'] = get_payment.shipping_postcode
             all_orders.append(response_dict)
         return jsonify({'Order details': all_orders}, 200)
