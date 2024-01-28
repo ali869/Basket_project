@@ -5,6 +5,7 @@ import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
 import stripe
+from datetime import timedelta
 import os
 
 stripe.api_key = "sk_test_51LCj9uKZSvaz9gvrL2PW6BjZZzKxUHM0PHwvlZ8sQMkuA59snhCyg1TUwkiN2Gn21S67MkXwxu9v6sOhdpJHWCy200JQlYOhYU"
@@ -13,6 +14,7 @@ app = Flask(__name__, static_url_path='/static', static_folder='static')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://postgres:postgres@localhost/local_basket2'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = 'Secret_key_shh676767'
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
 app.config['BASE_URL'] = 'http://localhost:5000'
@@ -183,7 +185,7 @@ def get_basket():
             product = Products.query.get(basket_item.item_id)
             if product:
                 product_details = {
-                    'product_id': product.product_id,
+                    'product_id': basket_item.basket_id,
                     'category': product.category,
                     'colour': product.colour,
                     'size': basket_item.selected_size,
@@ -389,7 +391,7 @@ def add_payment_method():
                 if product:
                     total_price += float(product.price) * basket_item.quantity
             payment_intent = stripe.PaymentIntent.create(
-                amount=int(total_price)*100,
+                amount=int(total_price) * 100,
                 currency='gbp',
                 payment_method_types=['card'],
                 receipt_email=user.email
@@ -425,6 +427,7 @@ def add_payment_method():
     except Exception as e:
         return jsonify({'message': f'Failed to create payment because of {str(e)}'}, 400)
 
+
 @app.route('/get-order-details', methods=['GET'])
 @jwt_required()
 def order_details():
@@ -449,6 +452,28 @@ def order_details():
         return jsonify({'Order details': all_orders}, 200)
     except Exception as e:
         return jsonify({'error': f'Failed to get order details because {str(e)}'}, 400)
+
+
+@app.route('/edit_basket', methods=['PUT'])
+@jwt_required()
+def update_basket():
+    try:
+        data = request.json
+        get_products = data.get('products')
+        for product in get_products:
+            get_prod_id = product.get('product_id')
+            if get_prod_id:
+                get_basket = Basket.query.get(get_prod_id)
+                if product.get('size'):
+                    get_basket.selected_size = product.get('size')
+                if product.get('quantity'):
+                    get_basket.quantity = product.get('quantity')
+                db.session.commit()
+
+        return jsonify({'message': 'Basket updated successfully.'}, 200)
+
+    except Exception as e:
+        return jsonify({'error': f'Failed to edit basket because of {str(e)}'}, 400)
 
 
 if __name__ == '__main__':
