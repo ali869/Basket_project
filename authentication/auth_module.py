@@ -353,6 +353,7 @@ def make_transaction(customer):
 @jwt_required()
 def add_payment_method():
     try:
+        import pdb; pdb.set_trace()
         data = request.json
         p_method = data.get('payment_method_id', None)
         get_address = data.get('address', '')
@@ -374,7 +375,7 @@ def add_payment_method():
                 if product:
                     total_price += float(product.price) * basket_item.quantity
             payment_intent = stripe.PaymentIntent.create(
-                amount=int(total_price),
+                amount=int(total_price)*100,
                 currency='gbp',
                 payment_method_types=['card'],
                 receipt_email=user.email
