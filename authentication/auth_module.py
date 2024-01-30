@@ -73,6 +73,7 @@ class StripePayments(db.Model):
     shipping_address_line3 = db.Column(db.String(100), nullable=True)
     shipping_address_ine4 = db.Column(db.String(100), nullable=True)
     shipping_postcode = db.Column(db.String(10), nullable=False)
+    city = db.Column(db.String(50), nullable=False)
     created_at = db.Column(db.DateTime, nullable=False)
 
 
@@ -350,7 +351,7 @@ def create_stripe_intent(customer, payment_method, amount):
         intent = stripe.PaymentIntent.create(
             customer=customer,
             payment_method=payment_method,
-            currency='gbp',
+            currency='eur',
             amount=int(float(amount) * 100),
             off_session=True,
             confirm=True
@@ -372,14 +373,21 @@ def make_transaction(customer):
 def add_payment_method():
     try:
         data = request.json
-        p_method = data.get('payment_method_id', None)
-        get_address = data.get('address', '')
-        get_postal_code = data.get('postal_code', '')
-        if not p_method:
-            return jsonify({'message': 'Payment method id is required.'}), 400
+        validate_data = {
+            'payment_method': data.get('payment_method_id', None),
+            'address1': data.get('address1', None),
+            'address2': data.get('address2', None),
+            'city': data.get('city', None),
+            'postal_code': data.get('postal_code', None),
+
+        }
+        none_keys = [key for key, value in validate_data.items() if value is None]
+        if none_keys:
+            return jsonify({'success': False, 'message': f"{', '.join(none_keys)} "
+                                                         f"{'is' if len(none_keys) == 1 else 'are'} required"})
         current_user = get_jwt_identity()
         user = Customers.query.filter_by(customer_id=current_user).first()
-        success, customer = create_stripe_user(p_method, user.email)
+        success, customer = create_stripe_user(validate_data['payment_method'], user.email)
         if not success:
             return jsonify({'success': False, 'message': f'{customer.split(": ")[-1]}'}, 400)
         success, stripe_response = make_transaction(customer.id)
@@ -406,8 +414,10 @@ def add_payment_method():
                 stripe_customer_id=customer.id,
                 currency='gbp',
                 payment_status='APPROVED',
-                shipping_address_line1=get_address,
-                shipping_postcode=get_postal_code,
+                shipping_address_line1=validate_data['address1'],
+                shipping_address_line2=validate_data['address2'],
+                city=validate_data['city'],
+                shipping_postcode=validate_data['postal_code'],
                 created_at=datetime.datetime.now()
             )
             db.session.add(new_payment)
@@ -448,6 +458,8 @@ def order_details():
             response_dict['amount'] = int(get_payment.amount)
             response_dict['payment_status'] = get_payment.payment_status
             response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
+            response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
+            response_dict['city'] = get_payment.city
             response_dict['shipping_postcode'] = get_payment.shipping_postcode
             all_orders.append(response_dict)
         return jsonify({'Order details': all_orders}, 200)
