@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify, url_for
 from flask_sqlalchemy import SQLAlchemy
+from flask_cors import CORS
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
 import uuid
 from werkzeug.security import generate_password_hash, check_password_hash
 import datetime
+from datetime import timedelta
 import stripe
 from datetime import timedelta
 import os
@@ -16,9 +18,11 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = 'Secret_key_shh676767'
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(days=1)
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
 app.config['BASE_URL'] = 'http://localhost:5000'
 
+cors = CORS(app)
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
 
@@ -110,8 +114,6 @@ def get_products():
                 'price': float(product.price),
                 'created_at': product.created_at.strftime('%Y-%m-%d %H:%M:%S'),
                 'updated_at': product.updated_at.strftime('%Y-%m-%d %H:%M:%S'),
-                'image_path': url_for('static', filename='uploads/' + os.path.basename(
-                    product.image_path)) if product.image_path else ''
             }
             for product in products
         ]
@@ -401,7 +403,7 @@ def add_payment_method():
                     total_price += float(product.price) * basket_item.quantity
             payment_intent = stripe.PaymentIntent.create(
                 amount=int(total_price) * 100,
-                currency='gbp',
+                currency='eur',
                 payment_method_types=['card'],
                 receipt_email=user.email
             )
@@ -412,7 +414,7 @@ def add_payment_method():
                 stripe_payment_intent_id=payment_intent['id'],
                 amount=total_price,
                 stripe_customer_id=customer.id,
-                currency='gbp',
+                currency='eur',
                 payment_status='APPROVED',
                 shipping_address_line1=validate_data['address1'],
                 shipping_address_line2=validate_data['address2'],
@@ -422,7 +424,8 @@ def add_payment_method():
             )
             db.session.add(new_payment)
             db.session.commit()
-            new_order = Orders(order_id=uuid.uuid4(), order_status='APPROVED', customer_id=user.customer_id,
+            new_order_id = uuid.uuid4()
+            new_order = Orders(order_id=new_order_id, order_status='APPROVED', customer_id=user.customer_id,
                                payment_method_id=new_payment_id, created_at=datetime.datetime.now())
             db.session.add(new_order)
             db.session.commit()
@@ -431,8 +434,8 @@ def add_payment_method():
                 db.session.delete(basket)
                 db.session.commit()
             return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
-                            'user_email': str(user.email), 'customer_id': customer.id,
-                            'status_message': 'Payment Created successfully.'}, 200)
+                            'user_email': str(user.email), 'customer_id': customer.id, 'order_id': str(new_order_id),
+                            'status_message': 'Payment Created successfully.', 'total_price': total_price}, 200)
 
         return jsonify({'message': 'Failed to create Payment Method'}, 400)
     except Exception as e:
@@ -445,24 +448,45 @@ def order_details():
     try:
         current_user = get_jwt_identity()
         user = Customers.query.filter_by(customer_id=current_user).first()
-        all_orders = list()
-        get_payments = StripePayments.query.filter_by(customer_id=current_user)
-        for get_payment in get_payments:
-            response_dict = {}
-            if get_payment.payment_status == 'APPROVED':
-                get_order = Orders.query.filter_by(customer_id=current_user).first()
+        order_id = request.args.get('order_id', None)
+        if order_id is None:
+            all_orders = list()
+            get_payments = StripePayments.query.filter_by(customer_id=current_user)
+            for get_payment in get_payments:
+                response_dict = {}
+                if get_payment.payment_status == 'APPROVED':
+                    get_order = Orders.query.filter_by(customer_id=current_user).first()
+                    response_dict['order_id'] = get_order.order_id
+                    response_dict['order_status'] = get_order.order_status
+                    response_dict['order_created_at'] = get_order.created_at
+                response_dict['payment_id'] = get_payment.payment_id
+                response_dict['amount'] = int(get_payment.amount)
+                response_dict['payment_status'] = get_payment.payment_status
+                response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
+                response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
+                response_dict['city'] = get_payment.city
+                response_dict['shipping_postcode'] = get_payment.shipping_postcode
+                all_orders.append(response_dict)
+            return jsonify({'orders': all_orders}, 200)
+        else:
+            get_payments = StripePayments.query.filter_by(customer_id=current_user, payment_status='APPROVED')
+            for get_payment in get_payments:
+                response_dict = {}
+                get_order = Orders.query.filter_by(customer_id=current_user, order_id=order_id).first()
+                if not get_order:
+                    return jsonify({'message': "Order not found"}, 404)
+
                 response_dict['order_id'] = get_order.order_id
                 response_dict['order_status'] = get_order.order_status
                 response_dict['order_created_at'] = get_order.created_at
-            response_dict['payment_id'] = get_payment.payment_id
-            response_dict['amount'] = int(get_payment.amount)
-            response_dict['payment_status'] = get_payment.payment_status
-            response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
-            response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
-            response_dict['city'] = get_payment.city
-            response_dict['shipping_postcode'] = get_payment.shipping_postcode
-            all_orders.append(response_dict)
-        return jsonify({'Order details': all_orders}, 200)
+                response_dict['payment_id'] = get_payment.payment_id
+                response_dict['amount'] = int(get_payment.amount)
+                response_dict['payment_status'] = get_payment.payment_status
+                response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
+                response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
+                response_dict['city'] = get_payment.city
+                response_dict['shipping_postcode'] = get_payment.shipping_postcode
+                return jsonify({'order': response_dict}, 200)
     except Exception as e:
         return jsonify({'error': f'Failed to get order details because {str(e)}'}, 400)
 
