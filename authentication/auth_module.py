@@ -185,6 +185,7 @@ def get_basket():
 
         basket_details = []
         for basket_item in basket_items:
+            unique_sizes = list()
             product = Products.query.get(basket_item.item_id)
             if product:
                 product_details = {
@@ -197,7 +198,8 @@ def get_basket():
                     'quantity': basket_item.quantity,
                     'date_added': basket_item.date_created,
                     'image_path': url_for('static', filename='uploads/' + os.path.basename(
-                        product.image_path)) if product.image_path else ''
+                        product.image_path)) if product.image_path else '',
+                    'product_sizes': product.size
                 }
                 basket_details.append(product_details)
 
