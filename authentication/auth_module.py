@@ -426,7 +426,7 @@ def add_payment_method():
             )
             db.session.add(new_payment)
             db.session.commit()
-            new_order_id = uuid.uuid4()
+            new_order_id = str(uuid.uuid4())
             new_order = Orders(order_id=new_order_id, order_status='APPROVED', customer_id=user.customer_id,
                                payment_method_id=new_payment_id, created_at=datetime.datetime.now())
             db.session.add(new_order)
@@ -436,8 +436,9 @@ def add_payment_method():
                 db.session.delete(basket)
                 db.session.commit()
             return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
-                            'user_email': str(user.email), 'customer_id': customer.id, 'order_id': str(new_order_id),
-                            'status_message': 'Payment Created successfully.', 'total_price': total_price}, 200)
+                            'user_email': str(user.email), 'customer_id': customer.id, 'order_id': new_order_id,
+                            'status_message': 'Payment Created successfully.', 'total_price': total_price,
+                            'payment_id': str(new_payment_id)}, 200)
 
         return jsonify({'message': 'Failed to create Payment Method'}, 400)
     except Exception as e:
@@ -457,24 +458,31 @@ def order_details():
             for get_payment in get_payments:
                 response_dict = {}
                 if get_payment.payment_status == 'APPROVED':
-                    get_order = Orders.query.filter_by(customer_id=current_user).first()
-                    response_dict['order_id'] = get_order.order_id
-                    response_dict['order_status'] = get_order.order_status
-                    response_dict['order_created_at'] = get_order.created_at
-                response_dict['payment_id'] = get_payment.payment_id
-                response_dict['amount'] = int(get_payment.amount)
-                response_dict['payment_status'] = get_payment.payment_status
-                response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
-                response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
-                response_dict['city'] = get_payment.city
-                response_dict['shipping_postcode'] = get_payment.shipping_postcode
-                all_orders.append(response_dict)
+                    get_orders = Orders.query.filter_by(customer_id=current_user, payment_method_id=get_payment.payment_id)
+                    for get_order in get_orders:
+                        response_dict = {}
+                        response_dict['order_id'] = get_order.order_id
+                        response_dict['order_status'] = get_order.order_status
+                        response_dict['order_created_at'] = get_order.created_at
+                        response_dict['payment_id'] = get_payment.payment_id
+                        response_dict['amount'] = int(get_payment.amount)
+                        response_dict['payment_status'] = get_payment.payment_status
+                        response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
+                        response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
+                        response_dict['city'] = get_payment.city
+                        response_dict['shipping_postcode'] = get_payment.shipping_postcode
+                        all_orders.append(response_dict)
             return jsonify({'orders': all_orders}, 200)
         else:
-            get_payments = StripePayments.query.filter_by(customer_id=current_user, payment_status='APPROVED')
+            payment_id = request.args.get('payment_id', None)
+            if payment_id is None:
+                return jsonify({'error': 'Failed to get order details because payment id not found'}, 400)
+            get_payments = StripePayments.query.filter_by(customer_id=current_user,
+                                                          payment_id=payment_id)
             for get_payment in get_payments:
                 response_dict = {}
-                get_order = Orders.query.filter_by(customer_id=current_user, order_id=order_id).first()
+                get_order = Orders.query.filter_by(customer_id=current_user, order_id=order_id,
+                                                   payment_method_id=payment_id).first()
                 if not get_order:
                     return jsonify({'message': "Order not found"}, 404)
 
