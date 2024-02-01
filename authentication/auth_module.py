@@ -465,7 +465,7 @@ def order_details():
                         response_dict['order_status'] = get_order.order_status
                         response_dict['order_created_at'] = get_order.created_at
                         response_dict['payment_id'] = get_payment.payment_id
-                        response_dict['amount'] = int(get_payment.amount)
+                        response_dict['amount'] = float(get_payment.amount)
                         response_dict['payment_status'] = get_payment.payment_status
                         response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
                         response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
@@ -490,7 +490,7 @@ def order_details():
                 response_dict['order_status'] = get_order.order_status
                 response_dict['order_created_at'] = get_order.created_at
                 response_dict['payment_id'] = get_payment.payment_id
-                response_dict['amount'] = int(get_payment.amount)
+                response_dict['amount'] = float(get_payment.amount)
                 response_dict['payment_status'] = get_payment.payment_status
                 response_dict['shipping_address_line1'] = get_payment.shipping_address_line1
                 response_dict['shipping_address_line2'] = get_payment.shipping_address_line2
