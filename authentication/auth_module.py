@@ -36,6 +36,7 @@ class Customers(db.Model):
     telephone = db.Column(db.String(20), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
+    payment_intent_id = db.Column(db.String(256), nullable=True)
     basket = db.relationship('Basket', backref='customer', uselist=False)  # Relationship to Basket
 
 
@@ -435,6 +436,11 @@ def add_payment_method():
             for basket in basket_items:
                 db.session.delete(basket)
                 db.session.commit()
+            if eval(str(data.get('save_payment', '')).capitalize()):
+                user.payment_intent_id = customer.id
+            else:
+                user.payment_intent_id = None
+            db.session.commit()
             return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
                             'user_email': str(user.email), 'customer_id': customer.id, 'order_id': new_order_id,
                             'status_message': 'Payment Created successfully.', 'total_price': total_price,
@@ -521,6 +527,38 @@ def update_basket():
 
     except Exception as e:
         return jsonify({'error': f'Failed to edit basket because of {str(e)}'}, 400)
+
+
+def get_card_info(stripe_user, card=None):
+    payment_methods = stripe.PaymentMethod.list(
+        customer=stripe_user,
+        type='card'
+    )
+    if payment_methods:
+        if card:
+            result = dict()
+            result['last4'] = payment_methods.data[0]['card']['last4']
+            result['exp_month'] = payment_methods.data[0]['card']['exp_month']
+            result['exp_year'] = payment_methods.data[0]['card']['exp_year']
+            result['brand'] = payment_methods.data[0]['card']['brand']
+            return result
+    return False
+
+
+@app.route('/check_save_card', methods=['GET'])
+@jwt_required()
+def check_save_card():
+    try:
+        current_user = get_jwt_identity()
+        user = Customers.query.filter_by(customer_id=current_user).first()
+        if user.payment_intent_id:
+            user_card_info = get_card_info(user.payment_intent_id, True)
+            if not user_card_info:
+                return jsonify({'is_card': False, 'message': 'Card info not saved'}, 404)
+            return jsonify(user_card_info, 200)
+        return jsonify({'is_card': False, 'message': 'Card info not saved'}, 404)
+    except Exception as e:
+        return jsonify({'error': f'Failed to get card details because of {str(e)}'}, 400)
 
 
 if __name__ == '__main__':
