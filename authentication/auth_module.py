@@ -395,8 +395,10 @@ def add_payment_method():
         user = Customers.query.filter_by(customer_id=current_user).first()
         success, customer = create_stripe_user(validate_data['payment_method'], user.email)
         if not success:
-            return jsonify({'success': False, 'message': f'{customer.split(": ")[-1]}'}, 400)
-        success, stripe_response = make_transaction(customer.id)
+            get_customer_id = user.payment_intent_id
+        else:
+            get_customer_id = customer.id
+        success, stripe_response = make_transaction(get_customer_id)
         if success:
             basket_items = Basket.query.filter_by(customer_id=current_user).all()
             total_price = 0.0
@@ -417,7 +419,7 @@ def add_payment_method():
                 customer_id=user.customer_id,
                 stripe_payment_intent_id=payment_intent['id'],
                 amount=total_price,
-                stripe_customer_id=customer.id,
+                stripe_customer_id=get_customer_id,
                 currency='eur',
                 payment_status='APPROVED',
                 shipping_address_line1=validate_data['address1'],
@@ -438,14 +440,14 @@ def add_payment_method():
                 db.session.delete(basket)
                 db.session.commit()
             if eval(str(data.get('save_payment', '')).capitalize()):
-                user.payment_intent_id = customer.id
+                user.payment_intent_id = get_customer_id
                 user.payment_method_id = validate_data['payment_method']
             else:
                 user.payment_intent_id = None
                 user.payment_method_id = None
             db.session.commit()
             return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
-                            'user_email': str(user.email), 'customer_id': customer.id, 'order_id': new_order_id,
+                            'user_email': str(user.email), 'customer_id': get_customer_id, 'order_id': new_order_id,
                             'status_message': 'Payment Created successfully.', 'total_price': total_price,
                             'payment_id': str(new_payment_id)}, 200)
 
