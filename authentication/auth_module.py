@@ -37,6 +37,7 @@ class Customers(db.Model):
     created_at = db.Column(db.DateTime, nullable=False)
     password_hash = db.Column(db.String(256), nullable=False)
     payment_intent_id = db.Column(db.String(256), nullable=True)
+    payment_method_id = db.Column(db.String(256), nullable=True)
     basket = db.relationship('Basket', backref='customer', uselist=False)  # Relationship to Basket
 
 
@@ -438,8 +439,10 @@ def add_payment_method():
                 db.session.commit()
             if eval(str(data.get('save_payment', '')).capitalize()):
                 user.payment_intent_id = customer.id
+                user.payment_method_id = validate_data['payment_method']
             else:
                 user.payment_intent_id = None
+                user.payment_method_id = None
             db.session.commit()
             return jsonify({'success': True, 'message': 'stripe payment intent', 'payment_intent': payment_intent,
                             'user_email': str(user.email), 'customer_id': customer.id, 'order_id': new_order_id,
@@ -555,6 +558,7 @@ def check_save_card():
             user_card_info = get_card_info(user.payment_intent_id, True)
             if not user_card_info:
                 return jsonify({'is_card': False, 'message': 'Card info not saved'}, 404)
+            user_card_info['payment_method_id'] = user.payment_method_id
             return jsonify(user_card_info, 200)
         return jsonify({'is_card': False, 'message': 'Card info not saved'}, 404)
     except Exception as e:
